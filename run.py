@@ -11,9 +11,12 @@ from typing import List
 from datetime import datetime
 from math import comb
 import multiprocessing
+from dotenv import load_dotenv
 
+import boto3
 from strands.telemetry import StrandsTelemetry
 from strands.models import BedrockModel
+from strands.models.openai import OpenAIModel
 from strands import Agent
 from tau_bench.types import EnvRunResult, RunConfig
 from botocore.config import Config as BotocoreConfig
@@ -26,8 +29,9 @@ for tool in ALL_TOOLS:
     module_name = tool.__module__
     module = sys.modules[module_name]
     tool_modules.append(module)
-# Copyright Sierra
-from env import Env
+
+# from env import Env
+from env_litellm import Env
 from data import load_data
 
 
@@ -40,13 +44,16 @@ def custom_dumps(*args, **kwargs):
 json.dumps = custom_dumps
 
 
-public_key ="pk-lf-c4e3589d-867a-4faf-9eeb-a746f0b76fda" 
-secret_key = "sk-lf-7abf183b-11da-4d3c-9e27-08f72e5bb931" 
-langfuse_endpoint = "http://localhost:3000"
-os.environ["LANGFUSE_PUBLIC_KEY"] = public_key
-os.environ["LANGFUSE_SECRET_KEY"] = secret_key
-# os.environ["LANGFUSE_HOST"] = "http://localhost:3000" # 🇪🇺 EU region (default)
-os.environ["LANGFUSE_HOST"] = langfuse_endpoint
+load_dotenv(".env", override=True)
+# AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+# AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+# AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
+# print(f"AKSK: {AWS_ACCESS_KEY_ID} {AWS_SECRET_ACCESS_KEY}")
+
+# os.environ["LANGFUSE_PUBLIC_KEY"] = public_key
+# os.environ["LANGFUSE_SECRET_KEY"] = secret_key
+# # os.environ["LANGFUSE_HOST"] = "http://localhost:3000" # 🇪🇺 EU region (default)
+# os.environ["LANGFUSE_HOST"] = langfuse_endpoint
  
 public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
 secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
@@ -102,11 +109,30 @@ def run(config: RunConfig) -> List[EnvRunResult]:
         read_timeout=60
     )
 
-    bedrock_model = BedrockModel(
-        model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
-        region_name="us-east-1",  # Specify a different region than the default
-        temperature=config.temperature,
-        boto_client_config=boto_config,
+    session = boto3.Session(
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        region_name=AWS_REGION_NAME
+    )
+
+    # model = BedrockModel(
+    #     model_id=config.model,
+    #     boto_session=session,
+    #     # region_name="us-west-2",  # Specify a different region than the default
+    #     temperature=config.temperature,
+    #     boto_client_config=boto_config,
+    # )
+    model = OpenAIModel(
+        client_args={
+            "base_url": f"http://test-model-e051c6f0f76ab9cf.elb.us-east-2.amazonaws.com:80/v1", 
+            "api_key": "None"
+            # "api_key": "<KEY>",
+        },
+        # **model_config
+        model_id=config.model,
+        params={
+            "temperature": config.temperature,
+        }
     )
     total_cost = 0
     for i in range(config.num_trials):
@@ -120,20 +146,19 @@ def run(config: RunConfig) -> List[EnvRunResult]:
         def _run(idx: int, total_cost: int) -> EnvRunResult:
             print(f"Running task {idx}")
             try:
-                agent = Agent(model=bedrock_model,
+                agent = Agent(model=model,
                     system_prompt=system_prompt,
                     tools= tool_modules,
                     state={"datas": load_data()},
                     trace_attributes={
-                        "session.id": f"test-retail-{idx}",
-                        "user.id": f"agent-{idx}",
+                        "session.id": f"test-retail-{idx}-{config.model.split('/')[-1]}",
+                        "user.id": f"agent-{idx}-{config.model.split('/')[-1]}",
                         "langfuse.tags": [
-                            "evaluation",
-                            "retail-agent",
+                            f"retail-agent-{idx}-{config.model.split('/')[-1]}",
                         ],
                         "encoding": "utf-8"  # 明确指定编码
                     })
-                env = Env(tasks, agent, ["transfer_to_human_agents"], idx)
+                env = Env(tasks, agent, ["transfer_to_human_agents"], idx, config)
                 env.reset(idx)
                 res = env.loop()
                 total_cost += res.total_cost 

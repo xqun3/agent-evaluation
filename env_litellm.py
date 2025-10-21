@@ -6,8 +6,9 @@ import copy
 import json
 import uuid
 from typing import List, Optional
+from dotenv import load_dotenv
 
-import boto3
+import litellm
 from tau_bench.types import SolveResult
 from tau_bench.types import (
     Action,
@@ -21,35 +22,37 @@ from tau_bench.types import (
 from dotenv import load_dotenv
 from tools import get_tool_by_name
 from data import load_data
-from utils import generate_conversation, get_data_hash
-# from strands import Agent
+from utils import get_data_hash
 
-# ToHashable = Union[
-#     str, int, float, Dict[str, "ToHashable"], List["ToHashable"], Set["ToHashable"]
-# ]
-# Hashable = Union[str, int, float, Tuple["Hashable"], Tuple[Tuple[str, "Hashable"]]]
-
-
-# def to_hashable(item: ToHashable) -> Hashable:
-#     if isinstance(item, dict):
-#         return tuple((key, to_hashable(value)) for key, value in sorted(item.items()))
-#     elif isinstance(item, list):
-#         return tuple(to_hashable(element) for element in item)
-#     elif isinstance(item, set):
-#         return tuple(sorted(to_hashable(element) for element in item))
-#     else:
-#         return item
-
-
-# def consistent_hash(
-#     value: Hashable,
-# ) -> str:
-#     return sha256(str(value).encode("utf-8")).hexdigest()
 load_dotenv(".env", override=True)
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-print(f"AKSK: {AWS_ACCESS_KEY_ID} {AWS_SECRET_ACCESS_KEY}")
+
+# Configure LiteLLM for different providers
+# AWS_ACCESS_KEY_ID = 
+# AWS_SECRET_ACCESS_KEY = 
+# AWS_REGION_NAME = 
+# OPENAI_API_KEY = 
+# DEEPSEEK_API_KEY = 
+# API_URL = 
+
+# Set credentials for LiteLLM
+if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+    os.environ["AWS_ACCESS_KEY_ID"] = os.getenv("AWS_ACCESS_KEY_ID")
+    os.environ["AWS_SECRET_ACCESS_KEY"] = os.getenv("AWS_SECRET_ACCESS_KEY")
+    os.environ["AWS_REGION_NAME"] = os.getenv("AWS_REGION_NAME") or "us-west-2"
+
+if OPENAI_API_KEY:
+    os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+
+if DEEPSEEK_API_KEY:
+    os.environ["DEEPSEEK_API_KEY"] = os.getenv("DEEPSEEK_API_KEY")
+
+# Configure LiteLLM settings
+litellm.set_verbose = False  # Set to True for debugging
+
+print(f"AWS Credentials configured: {bool(AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)}")
+print(f"OpenAI API Key configured: {bool(OPENAI_API_KEY)}")
+print(f"DeepSeek API Key configured: {bool(DEEPSEEK_API_KEY)}")
+print(f"API URL: {os.getenv("API_URL")}")
 
 
 class Env(object):
@@ -73,50 +76,20 @@ class Env(object):
         random_uuid = uuid.uuid4()
         print(str(random_uuid))  
 
-        # boto_config = BotocoreConfig(
-        #     retries={"max_attempts": 3, "mode": "standard"},
-        #     connect_timeout=5,
-        #     read_timeout=60
-        # )
-
-        # Create a configured Bedrock model
-        # model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
-        # bedrock_model = BedrockModel(
-        #     model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0",
-        #     region_name="us-east-1",  # Specify a different region than the default
-        #     temperature=0.0,
-        #     boto_client_config=boto_config,
-        # )
-        # self.user_agent = Agent(
-        #             model = bedrock_model,
-        #             system_prompt=self.build_user_system_prompt(self.task.instruction),
-        #             trace_attributes={
-        #                 "session.id": f"tao-bench-user-{str(random_uuid)}",
-        #                 "user.id": "xq",
-        #                 "langfuse.tags": [
-        #                     "evaluation",
-        #                     "retail-user",
-        #                 ],
-        #                 "encoding": "utf-8"  # 明确指定编码
-        #             }) 
         self.user_system_prompt = self.build_user_system_prompt(self.task.instruction)
-        # self.client = boto3.client(service_name='bedrock-runtime') 
-        self.client = boto3.client(service_name='bedrock-runtime', region_name=AWS_REGION_NAME, aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY) 
-        # self.client = boto3.client(service_name='bedrock-runtime', region_name=AWS_REGION_NAME) 
         self.user_messages = []
         self.actions: List[Action] = []
         self.output_list: List[str] = []
         self.split_message_ids = 0
-        # self.model_id = "us.anthropic.claude-3-5-haiku-20241022-v1:0" 
-        #self.model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+        
         print("user model: ", config.user_model)
-        self.model_id=config.user_model
+        self.model_id = config.user_model
+        print("User model_id: ", self.model_id)
 
     def reset(self, task_index: Optional[int] = None) -> EnvResetResponse:
         if task_index is None:
             task_index = random.randint(0, len(self.tasks))
         self.task_index = task_index
-        # self.data = self.data_load_func()
         self.task = self.tasks[task_index]
         self.actions = []
         
@@ -135,23 +108,69 @@ Rules:
 - Do not repeat the exact instruction in the conversation. Instead, use your own words to convey the same information.
 - Try to make the conversation as natural as possible, and stick to the personalities in the instruction."""
 
+    def generate_conversation_litellm(self, messages: List[dict], system_prompt: Optional[str] = None, max_tokens: int = 8192) -> str:
+        """Generate conversation using LiteLLM instead of direct Bedrock client"""
+
+        litellm_messages = []
+        
+        if system_prompt:
+            litellm_messages.append({"role": "system", "content": system_prompt})
+        
+        for msg in messages:
+            role = msg["role"]
+            # Extract text content from Bedrock format
+            if isinstance(msg["content"], list):
+                content = ""
+                for content_block in msg["content"]:
+                    if "text" in content_block:
+                        content += content_block["text"]
+            else:
+                content = msg["content"]
+            
+            litellm_messages.append({"role": role, "content": content})
+        
+        # Prepare completion parameters
+        completion_params = {
+            "model": self.model_id,
+            "api_key": "None",                  # api key to your openai compatible endpoint
+            "api_base": "http://test-model-e051c6f0f76ab9cf.elb.us-east-2.amazonaws.com:80/v1",     
+            # messages=litellm_messages,
+            "messages": litellm_messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.0,
+            "stream": False
+        }
+        
+        
+        # Make the API call using LiteLLM
+        response = litellm.completion(**completion_params)
+        
+        return response.choices[0].message.content
+            
+        # except Exception as e:
+        #     print(f"ERROR: Can't invoke '{self.model_id}'. Reason: {e}")
+        #     print(f"Avail
+
     def loop(self, max_num_steps=30):
-        # total_cost = 0.0
         accumulated_usage = {
-            "inputTokens":0,
+            "inputTokens": 0,
             "outputTokens": 0,
-            "totalTokens": 0}
-        # env_reset_res = env.reset(task_index=task_index)
-        # user_message = self.user_agent("Hi! How can I help you today?")
-        self.user_messages = [{"role": "user","content": [{"text": "Hi! How can I help you today?"}]}]
-        # user_message = None
-        user_message = generate_conversation(self.client, self.model_id, self.user_messages, system_prompt=self.user_system_prompt,max_token=8192) 
+            "totalTokens": 0
+        }
+        
+        self.user_messages = [{"role": "user", "content": [{"text": "Hi! How can I help you today?"}]}]
+        user_message = self.generate_conversation_litellm(
+            self.user_messages, 
+            system_prompt=self.user_system_prompt, 
+            max_tokens=8192
+        )
         
         for _ in range(max_num_steps):
             reward = 0
             done = False
             done = "###STOP###" in f"{user_message}"
-            self.user_messages.append({"role": "assistant","content": [{"text": user_message}]})
+            self.user_messages.append({"role": "assistant", "content": [{"text": user_message}]})
+            
             if done:
                 self.split_message_ids = len(self.agent.messages)
                 if hasattr(res, 'metrics') and hasattr(res.metrics, 'tool_metrics'):
@@ -165,6 +184,7 @@ Rules:
                 reward = reward_res.reward
                 info.reward_info = reward_res
                 break 
+                
             user_input = f"{user_message}"
             res = self.agent(user_input)
             accumulated_usage["inputTokens"] += res.metrics.accumulated_usage["inputTokens"]
@@ -172,8 +192,12 @@ Rules:
             accumulated_usage["totalTokens"] += res.metrics.accumulated_usage['totalTokens']
 
             agent_output = f"{res}"
-            self.user_messages.append({"role": "user","content": [{"text": agent_output}]})
-            user_message = generate_conversation(self.client, self.model_id, self.user_messages, system_prompt=self.user_system_prompt,max_token=8192) 
+            self.user_messages.append({"role": "user", "content": [{"text": agent_output}]})
+            user_message = self.generate_conversation_litellm(
+                self.user_messages, 
+                system_prompt=self.user_system_prompt, 
+                max_tokens=8192
+            )
             self.output_list.append(agent_output)
 
             info = EnvInfo(task=self.task)
@@ -181,7 +205,6 @@ Rules:
                 for dic in self.agent.messages[-3]["content"]:
                     if "toolUse" in dic and dic["toolUse"]["name"] in self.terminate_tools:
                         done = True
-
 
             if done:
                 self.split_message_ids = len(self.agent.messages)
@@ -198,12 +221,13 @@ Rules:
                 info.reward_info = reward_res
                 break
         
-        #total_cost = accumulated_usage["inputTokens"] /1000 * 0.003 + accumulated_usage["outputTokens"]/1000 * 0.015
-        total_cost = accumulated_usage["inputTokens"] /1000 * 0.001+ accumulated_usage["outputTokens"]/1000 * 0.005
+        # Calculate cost based on token usage
+        total_cost = accumulated_usage["inputTokens"] / 1000 * 0.001 + accumulated_usage["outputTokens"] / 1000 * 0.005
         print("total_cost: ", total_cost)
-        # info.total
+        
         final_messages = self.agent.messages[:self.split_message_ids]
-        final_messages.append({"role": "user","content": [{"text": user_message}]})
+        final_messages.append({"role": "user", "content": [{"text": user_message}]})
+        
         return SolveResult(
             reward=reward,
             info=info.model_dump(),
@@ -215,11 +239,7 @@ Rules:
         reward = 1.0
 
         # Check if the database changes are correct. If they are not correct, then we set the reward to 0.
-        # TODO: cache gt_data_hash in tasks.py (low priority)
-
         data_hash = get_data_hash(self.agent.state.get("datas"))
-        # with open("run_result_data","w") as wf:
-        #     json.dump(self.agent.state.get("datas"), wf)
         golden_data = load_data()
         actions = []
 
@@ -235,8 +255,6 @@ Rules:
                 tool_func = get_tool_by_name(action.name)
                 _ = tool_func(tool_use, agent=None, datas=golden_data)
                 print(_)
-        # with open("golden_data","w") as wf:
-        #     json.dump(golden_data, wf)
                  
         gt_data_hash = get_data_hash(golden_data)
         info = RewardActionInfo(
@@ -264,4 +282,3 @@ Rules:
             info = RewardOutputInfo(r_outputs=r_outputs, outputs=outputs)
             
         return RewardResult(reward=reward, info=info, actions=self.actions)
-# 
