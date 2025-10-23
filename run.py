@@ -17,6 +17,7 @@ import boto3
 from strands.telemetry import StrandsTelemetry
 from strands.models import BedrockModel
 from strands.models.openai import OpenAIModel
+from strands.models.litellm import LiteLLMModel
 from strands import Agent
 from tau_bench.types import EnvRunResult, RunConfig
 from botocore.config import Config as BotocoreConfig
@@ -45,16 +46,10 @@ json.dumps = custom_dumps
 
 
 load_dotenv(".env", override=True)
-# AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-# AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-# AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-# print(f"AKSK: {AWS_ACCESS_KEY_ID} {AWS_SECRET_ACCESS_KEY}")
 
-# os.environ["LANGFUSE_PUBLIC_KEY"] = public_key
-# os.environ["LANGFUSE_SECRET_KEY"] = secret_key
-# # os.environ["LANGFUSE_HOST"] = "http://localhost:3000" # 🇪🇺 EU region (default)
-# os.environ["LANGFUSE_HOST"] = langfuse_endpoint
- 
+API_KEY = os.getenv("DASHSCOPE_API_KEY") if os.getenv("DASHSCOPE_API_KEY") else os.environ['API_KEY']
+print(API_KEY)
+print(os.environ["API_URL"])
 public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
 secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
 langfuse_endpoint =  os.environ.get("LANGFUSE_HOST")
@@ -110,9 +105,9 @@ def run(config: RunConfig) -> List[EnvRunResult]:
     )
 
     session = boto3.Session(
-        aws_access_key_id=AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-        region_name=AWS_REGION_NAME
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        region_name=os.getenv("AWS_REGION_NAME")
     )
 
     # model = BedrockModel(
@@ -122,19 +117,33 @@ def run(config: RunConfig) -> List[EnvRunResult]:
     #     temperature=config.temperature,
     #     boto_client_config=boto_config,
     # )
-    model = OpenAIModel(
+    # model = OpenAIModel(
+    #     client_args={
+    #         "base_url": os.getenv("API_URL"), 
+    #         # "api_key": "None"
+    #     },
+    #     # **model_config
+    #     model_id=config.model,
+    #     params={
+    #         "temperature": config.temperature,
+    #     }
+    # )
+
+    
+    model = LiteLLMModel(
         client_args={
-            "base_url": f"http://test-model-e051c6f0f76ab9cf.elb.us-east-2.amazonaws.com:80/v1", 
-            "api_key": "None"
-            # "api_key": "<KEY>",
+            "base_url": os.getenv("API_URL"),
+            "api_key":  API_KEY,
         },
         # **model_config
-        model_id=config.model,
+        model_id="dashscope/qwen-max",
         params={
             "temperature": config.temperature,
         }
     )
     total_cost = 0
+    # total_input_token = 0
+    # total_output_token = 0
     for i in range(config.num_trials):
         if config.task_ids and len(config.task_ids) > 0:
             idxs = config.task_ids
@@ -161,7 +170,7 @@ def run(config: RunConfig) -> List[EnvRunResult]:
                 env = Env(tasks, agent, ["transfer_to_human_agents"], idx, config)
                 env.reset(idx)
                 res = env.loop()
-                total_cost += res.total_cost 
+                total_cost += res.total_cost
                 result = EnvRunResult(
                     task_id=idx,
                     reward=res.reward,

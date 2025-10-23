@@ -26,33 +26,7 @@ from utils import get_data_hash
 
 load_dotenv(".env", override=True)
 
-# Configure LiteLLM for different providers
-# AWS_ACCESS_KEY_ID = 
-# AWS_SECRET_ACCESS_KEY = 
-# AWS_REGION_NAME = 
-# OPENAI_API_KEY = 
-# DEEPSEEK_API_KEY = 
-# API_URL = 
-
-# Set credentials for LiteLLM
-if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
-    os.environ["AWS_ACCESS_KEY_ID"] = os.getenv("AWS_ACCESS_KEY_ID")
-    os.environ["AWS_SECRET_ACCESS_KEY"] = os.getenv("AWS_SECRET_ACCESS_KEY")
-    os.environ["AWS_REGION_NAME"] = os.getenv("AWS_REGION_NAME") or "us-west-2"
-
-if OPENAI_API_KEY:
-    os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-
-if DEEPSEEK_API_KEY:
-    os.environ["DEEPSEEK_API_KEY"] = os.getenv("DEEPSEEK_API_KEY")
-
-# Configure LiteLLM settings
 litellm.set_verbose = False  # Set to True for debugging
-
-print(f"AWS Credentials configured: {bool(AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)}")
-print(f"OpenAI API Key configured: {bool(OPENAI_API_KEY)}")
-print(f"DeepSeek API Key configured: {bool(DEEPSEEK_API_KEY)}")
-print(f"API URL: {os.getenv("API_URL")}")
 
 
 class Env(object):
@@ -132,8 +106,9 @@ Rules:
         # Prepare completion parameters
         completion_params = {
             "model": self.model_id,
-            "api_key": "None",                  # api key to your openai compatible endpoint
-            "api_base": "http://test-model-e051c6f0f76ab9cf.elb.us-east-2.amazonaws.com:80/v1",     
+            # "api_key": os.getenv("API_KEY"),                  # api key to your openai compatible endpoint
+            # "api_base": "http://test-model-e051c6f0f76ab9cf.elb.us-east-2.amazonaws.com:80/v1",     
+            "api_base": os.getenv("API_URL"),     
             # messages=litellm_messages,
             "messages": litellm_messages,
             "max_tokens": max_tokens,
@@ -146,10 +121,7 @@ Rules:
         response = litellm.completion(**completion_params)
         
         return response.choices[0].message.content
-            
-        # except Exception as e:
-        #     print(f"ERROR: Can't invoke '{self.model_id}'. Reason: {e}")
-        #     print(f"Avail
+
 
     def loop(self, max_num_steps=30):
         accumulated_usage = {

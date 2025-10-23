@@ -1,0 +1,6 @@
+strands-agents
+langfuse
+litellm
+strands-agents[openai]
+strands-agents[litellm]
+strands-agents-tools
