@@ -57,7 +57,7 @@ aws configure
 
 ### 运行测试任务
 ```
- uv run main.py --agent-strategy tool-calling --env retail --model bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0 --model-provider bedrock --user-model bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0 --user-model-provider bedrock --user-strategy llm --max-concurrency 1
+ python main.py --agent-strategy tool-calling --env retail --model bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0 --model-provider bedrock --user-model bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0 --user-model-provider bedrock --user-strategy llm --max-concurrency 1
 ```
 
 ### LLM as judge 进行归因分析
