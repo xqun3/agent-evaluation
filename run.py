@@ -14,10 +14,19 @@ import multiprocessing
 from dotenv import load_dotenv
 
 import boto3
-from strands.telemetry import StrandsTelemetry
+try:
+    from strands.telemetry import StrandsTelemetry
+except ImportError:
+    StrandsTelemetry = None
 from strands.models import BedrockModel
-from strands.models.openai import OpenAIModel
-from strands.models.litellm import LiteLLMModel
+try:
+    from strands.models.openai import OpenAIModel
+except ImportError:
+    OpenAIModel = None
+try:
+    from strands.models.litellm import LiteLLMModel
+except ImportError:
+    LiteLLMModel = None
 from strands import Agent
 from tau_bench.types import EnvRunResult, RunConfig
 from botocore.config import Config as BotocoreConfig
@@ -47,14 +56,12 @@ json.dumps = custom_dumps
 
 load_dotenv(".env", override=True)
 
-API_KEY = os.getenv("DASHSCOPE_API_KEY") if os.getenv("DASHSCOPE_API_KEY") else os.environ['API_KEY']
-print(API_KEY)
-print(os.environ["API_URL"])
+API_KEY = os.getenv("DASHSCOPE_API_KEY") or os.getenv("API_KEY") or ""
 public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
 secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
 langfuse_endpoint =  os.environ.get("LANGFUSE_HOST")
 # Set up endpoint
-if public_key and secret_key and langfuse_endpoint:
+if public_key and secret_key and langfuse_endpoint and StrandsTelemetry:
     otel_endpoint = langfuse_endpoint + "/api/public/otel"
     auth_token = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = otel_endpoint
@@ -110,37 +117,24 @@ def run(config: RunConfig) -> List[EnvRunResult]:
         region_name=os.getenv("AWS_REGION_NAME")
     )
 
-    # model = BedrockModel(
-    #     model_id=config.model,
-    #     boto_session=session,
-    #     # region_name="us-west-2",  # Specify a different region than the default
-    #     temperature=config.temperature,
-    #     boto_client_config=boto_config,
-    # )
-    # model = OpenAIModel(
-    #     client_args={
-    #         "base_url": os.getenv("API_URL"), 
-    #         # "api_key": "None"
-    #     },
-    #     # **model_config
-    #     model_id=config.model,
-    #     params={
-    #         "temperature": config.temperature,
-    #     }
-    # )
-
-    
-    model = LiteLLMModel(
-        client_args={
-            "base_url": os.getenv("API_URL"),
-            "api_key":  API_KEY,
-        },
-        # **model_config
-        model_id="dashscope/qwen-max",
-        params={
-            "temperature": config.temperature,
-        }
-    )
+    if config.model_provider == "bedrock":
+        model = BedrockModel(
+            model_id=config.model,
+            boto_session=session,
+            temperature=config.temperature,
+            boto_client_config=boto_config,
+        )
+    else:
+        model = LiteLLMModel(
+            client_args={
+                "base_url": os.getenv("API_URL"),
+                "api_key": API_KEY,
+            },
+            model_id=config.model or "dashscope/qwen-max",
+            params={
+                "temperature": config.temperature,
+            }
+        )
     total_cost = 0
     # total_input_token = 0
     # total_output_token = 0
@@ -157,16 +151,24 @@ def run(config: RunConfig) -> List[EnvRunResult]:
             try:
                 agent = Agent(model=model,
                     system_prompt=system_prompt,
-                    tools= tool_modules,
-                    state={"datas": load_data()},
+                    tools=tool_modules,
                     trace_attributes={
                         "session.id": f"test-retail-{idx}-{config.model.split('/')[-1]}",
                         "user.id": f"agent-{idx}-{config.model.split('/')[-1]}",
                         "langfuse.tags": [
                             f"retail-agent-{idx}-{config.model.split('/')[-1]}",
                         ],
-                        "encoding": "utf-8"  # 明确指定编码
+                        "encoding": "utf-8"
                     })
+                # Attach state for tools that use agent.state.get/set
+                class _State:
+                    def __init__(self, data):
+                        self._data = data
+                    def get(self, key, default=None):
+                        return self._data.get(key, default)
+                    def set(self, key, value):
+                        self._data[key] = value
+                agent.state = _State({"datas": load_data()})
                 env = Env(tasks, agent, ["transfer_to_human_agents"], idx, config)
                 env.reset(idx)
                 res = env.loop()
@@ -206,7 +208,8 @@ def run(config: RunConfig) -> List[EnvRunResult]:
         for idx in idxs:
             result, total_cost = _run(idx, total_cost) 
             results.append(result)
-            time.sleep(60)
+            if len(idxs) > 1:
+                time.sleep(60)
 
         print("total_cost: ", total_cost)
 

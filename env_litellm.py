@@ -57,7 +57,12 @@ class Env(object):
         self.split_message_ids = 0
         
         print("user model: ", config.user_model)
-        self.model_id = config.user_model
+        self.user_model_provider = getattr(config, 'user_model_provider', None)
+        # litellm requires "bedrock/" prefix for bedrock models
+        if self.user_model_provider == "bedrock" and not config.user_model.startswith("bedrock/"):
+            self.model_id = f"bedrock/{config.user_model}"
+        else:
+            self.model_id = config.user_model
         print("User model_id: ", self.model_id)
 
     def reset(self, task_index: Optional[int] = None) -> EnvResetResponse:
@@ -106,15 +111,15 @@ Rules:
         # Prepare completion parameters
         completion_params = {
             "model": self.model_id,
-            # "api_key": os.getenv("API_KEY"),                  # api key to your openai compatible endpoint
-            # "api_base": "http://test-model-e051c6f0f76ab9cf.elb.us-east-2.amazonaws.com:80/v1",     
-            "api_base": os.getenv("API_URL"),     
-            # messages=litellm_messages,
             "messages": litellm_messages,
             "max_tokens": max_tokens,
             "temperature": 0.0,
             "stream": False
         }
+
+        # Only set api_base for non-bedrock providers
+        if self.user_model_provider != "bedrock":
+            completion_params["api_base"] = os.getenv("API_URL")
         
         
         # Make the API call using LiteLLM

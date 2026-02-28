@@ -1,0 +1,12 @@
+[
+  {
+    "task_id": 0,
+    "reward": 0.0,
+    "info": {
+      "error": "Agent.__init__() got an unexpected keyword argument 'state'",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/dongxq/project/agent-evaluation/run.py\", line 152, in _run\n    agent = Agent(model=model,\n        system_prompt=system_prompt,\n    ...<8 lines>...\n            \"encoding\": \"utf-8\"  # \u660e\u786e\u6307\u5b9a\u7f16\u7801\n        })\nTypeError: Agent.__init__() got an unexpected keyword argument 'state'\n"
+    },
+    "traj": [],
+    "trial": 0
+  }
+]

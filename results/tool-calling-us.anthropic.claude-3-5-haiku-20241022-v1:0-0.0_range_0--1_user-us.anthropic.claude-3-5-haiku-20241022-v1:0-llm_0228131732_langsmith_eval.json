@@ -1,0 +1,44 @@
+{
+  "trajectory_strict_match": {
+    "average": 0.0,
+    "scores": [
+      0.0
+    ]
+  },
+  "trajectory_unordered_match": {
+    "average": 0.0,
+    "scores": [
+      0.0
+    ]
+  },
+  "trajectory_superset_match": {
+    "average": 0.0,
+    "scores": [
+      0.0
+    ]
+  },
+  "trajectory_subset_match": {
+    "average": 1.0,
+    "scores": [
+      1.0
+    ]
+  },
+  "trajectory_llm_judge": {
+    "average": 1.0,
+    "scores": [
+      1.0
+    ],
+    "reasonings": [
+      ""
+    ]
+  },
+  "correctness": {
+    "average": 0.0,
+    "scores": [
+      0.0
+    ],
+    "reasonings": [
+      ""
+    ]
+  }
+}
