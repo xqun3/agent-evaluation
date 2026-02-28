@@ -37,10 +37,7 @@ def return_delivered_order_items(tool: ToolUse,  agent: Agent, **kwargs: Any) ->
     item_ids = tool["input"]["item_ids"]
     payment_method_id = tool["input"]["payment_method_id"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     orders = datas.get("orders", {})
 
     # Check if the order exists and is delivered
@@ -90,9 +87,7 @@ def return_delivered_order_items(tool: ToolUse,  agent: Agent, **kwargs: Any) ->
     order["return_items"] = sorted(item_ids)
     order["return_payment_method_id"] = payment_method_id
     
-    if agent is not None:
-        agent.state.set("datas", datas)
-
+    agent.state.set("datas", datas)
 
     return {
         "toolUseId": tool_use_id,

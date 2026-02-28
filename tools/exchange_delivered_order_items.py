@@ -46,10 +46,7 @@ def exchange_delivered_order_items(tool: ToolUse, agent: Agent, **kwargs: Any) -
     new_item_ids = tool["input"]["new_item_ids"]
     payment_method_id = tool["input"]["payment_method_id"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     products, orders, users = datas.get("products", {}), datas.get("orders", {}), datas.get("users", {})
 
     print(tool_use_id, tool["input"].keys())
@@ -132,9 +129,8 @@ def exchange_delivered_order_items(tool: ToolUse, agent: Agent, **kwargs: Any) -
     order["exchange_price_difference"] = diff_price
 
 
-    if agent is not None:
-        agent.state.set("datas", datas)
-        
+    agent.state.set("datas", datas)
+
     return {
         "toolUseId": tool_use_id,
         "status": "success",

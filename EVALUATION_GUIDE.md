@@ -270,11 +270,13 @@ DeepEval 的 `actual_output` 只包含 Agent 最后一条消息。在多轮对�
 ## 评估数据流
 
 ```
-tau-bench 运行
+Agent 运行 (run.py)
     ↓
 results/*.json (原始对话轨迹 + 工具调用 + 奖励)
     ↓
 eval_common/extract_results.py (标准化提取)
+    ↓                  ↓
+    ↓            eval_common/state_eval.py (重放工具调用 → hash 对比)
     ↓
 ┌─────────────────┬──────────────────┬─────────────────┐
 │  eval_mlflow/   │  eval_langsmith/ │  eval_deepeval/  │
@@ -285,6 +287,8 @@ eval_common/extract_results.py (标准化提取)
  MLflow UI         JSON report      pytest report /
                                     Confident AI
 ```
+
+> 详细的 eval_common 使用说明见 [eval_common/README.md](./eval_common/README.md)。
 
 ---
 
@@ -300,7 +304,9 @@ agent-evaluation/
 ├── data/                           # 模拟数据库
 ├── results/                        # 运行结果输出
 ├── eval_common/                    # 公共评估模块
-│   └── extract_results.py          # 结果提取与标准化
+│   ├── state_eval.py               # 通用状态一致性评估（MockAgent + replay）
+│   ├── extract_results.py          # 结果提取与标准化
+│   └── README.md                   # eval_common 使用文档
 ├── eval_mlflow/                    # MLflow 评估
 │   └── run_eval.py
 ├── eval_langsmith/                 # LangSmith/agentevals 评估

@@ -31,10 +31,7 @@ def modify_pending_order_payment(tool: ToolUse,  agent: Agent, **kwargs: Any) ->
     order_id = tool["input"]["order_id"]
     payment_method_id = tool["input"]["payment_method_id"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     orders = datas.get("orders", {})
 
     # Check if the order exists and is pending
@@ -117,8 +114,7 @@ def modify_pending_order_payment(tool: ToolUse,  agent: Agent, **kwargs: Any) ->
         old_payment_method["balance"] += amount
         old_payment_method["balance"] = round(old_payment_method["balance"], 2)
     
-    if agent is not None:
-        agent.state.set("datas", datas)
+    agent.state.set("datas", datas)
 
     return {
         "toolUseId": tool_use_id,

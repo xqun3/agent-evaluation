@@ -25,10 +25,7 @@ def find_user_id_by_email(tool: ToolUse,  agent: Agent, **kwargs: Any) -> ToolRe
     tool_use_id = tool["toolUseId"]
     email = tool["input"]["email"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     users = datas.get("users", {})
     
     for user_id, profile in users.items():
@@ -38,10 +35,7 @@ def find_user_id_by_email(tool: ToolUse,  agent: Agent, **kwargs: Any) -> ToolRe
                 "status": "success",
                 "content": [{"text": user_id}]
             }
-    
-
-    if agent is not None:
-        agent.state.set("datas", datas)
+    agent.state.set("datas", datas)
 
     return {
         "toolUseId": tool_use_id,

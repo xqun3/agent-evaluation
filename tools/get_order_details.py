@@ -27,10 +27,7 @@ def get_order_details(tool: ToolUse, agent: Agent, **kwargs: Any) -> ToolResult:
     order_id = tool["input"]["order_id"]
     
     print(tool_use_id, order_id)
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     orders = datas.get("orders", {})
     
     if order_id in orders:
@@ -41,8 +38,7 @@ def get_order_details(tool: ToolUse, agent: Agent, **kwargs: Any) -> ToolResult:
             "content": [{"text": result}]
         }
     
-    if agent is not None:
-        agent.state.set("datas", datas)
+    agent.state.set("datas", datas)
 
     return {
         "toolUseId": tool_use_id,

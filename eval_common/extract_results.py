@@ -10,13 +10,19 @@ Provides a common data format for all three evaluation frameworks:
 
 import json
 import sys
-from hashlib import sha256
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple, Union
 from pathlib import Path
 
 # Add parent dir so we can import tau_bench types
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from eval_common.state_eval import (
+    get_data_hash,
+    StateEvaluatorConfig,
+    replay_actions,
+    evaluate_state_consistency,
+)
 
 
 @dataclass
@@ -58,32 +64,7 @@ class EvalDataPoint:
 
 
 # ── State consistency: replay & hash ─────────────────────────────
-
-# Reuse tau-bench's hashable conversion logic
-ToHashable = Union[
-    str, int, float, Dict[str, Any], List[Any],
-]
-
-def _to_hashable(item):
-    """Convert nested data to a hashable representation (mirrors tau_bench.envs.base.to_hashable)."""
-    if isinstance(item, dict):
-        return tuple((key, _to_hashable(value)) for key, value in sorted(item.items()))
-    elif isinstance(item, (list, tuple)):
-        return tuple(_to_hashable(element) for element in item)
-    elif isinstance(item, set):
-        return tuple(sorted(_to_hashable(element) for element in item))
-    else:
-        return item
-
-
-def _consistent_hash(value) -> str:
-    """SHA256 hash (mirrors tau_bench.envs.base.consistent_hash)."""
-    return sha256(str(value).encode("utf-8")).hexdigest()
-
-
-def get_data_hash(data: Dict[str, Any]) -> str:
-    """Compute deterministic hash for a data dict."""
-    return _consistent_hash(_to_hashable(data))
+# get_data_hash, replay_actions, evaluate_state_consistency are imported from state_eval
 
 
 def _detect_env(info: Dict[str, Any]) -> str:
@@ -99,11 +80,11 @@ def _detect_env(info: Dict[str, Any]) -> str:
     return "retail"
 
 
-def _load_env_resources(env_type: str):
-    """Load data function and tools map for the given environment type.
+def create_tau_bench_config(env_type: str) -> StateEvaluatorConfig:
+    """Create a StateEvaluatorConfig for tau-bench environments (backward-compatible).
 
-    Returns:
-        (load_data_func, tools_map) where tools_map is {name: ToolClass}
+    Wraps tau-bench Tool.invoke(data=..., **kwargs) into Strands tool signature
+    (tool_use, agent, **kw) so the generic replay infrastructure can drive them.
     """
     if env_type == "airline":
         from tau_bench.envs.airline.data import load_data
@@ -112,34 +93,18 @@ def _load_env_resources(env_type: str):
         from tau_bench.envs.retail.data import load_data
         from tau_bench.envs.retail.tools import ALL_TOOLS
 
-    tools_map = {
-        tool.get_info()["function"]["name"]: tool for tool in ALL_TOOLS
+    def _adapt(tool_cls):
+        def wrapper(tool_use, agent, **kw):
+            data = agent.state.get("datas")
+            result = tool_cls.invoke(data=data, **tool_use["input"])
+            agent.state.set("datas", data)
+            return result
+        return wrapper
+
+    tools = {
+        t.get_info()["function"]["name"]: _adapt(t) for t in ALL_TOOLS
     }
-    return load_data, tools_map
-
-
-def _replay_actions_on_data(data: Dict[str, Any], actions: List[Dict[str, Any]],
-                            tools_map: Dict) -> Dict[str, Any]:
-    """Replay a list of actions (tool calls) on a data dict, mutating it in place.
-
-    Each action is {"name": "tool_name", "kwargs": {...}} or a ToolCallRecord.
-    Actions that are not found in tools_map are silently skipped (e.g. 'respond').
-    """
-    for action in actions:
-        if isinstance(action, dict):
-            name = action.get("name", "")
-            kwargs = action.get("kwargs", {})
-        else:
-            # ToolCallRecord
-            name = action.name
-            kwargs = action.arguments if isinstance(action.arguments, dict) else {}
-
-        if name in tools_map:
-            try:
-                tools_map[name].invoke(data=data, **kwargs)
-            except Exception:
-                pass  # tool errors don't stop replay
-    return data
+    return StateEvaluatorConfig(state_factory=load_data, tools=tools)
 
 
 def replay_and_compute_hashes(
@@ -152,17 +117,21 @@ def replay_and_compute_hashes(
     Returns:
         (gt_data_hash, agent_data_hash, state_consistent)
     """
-    load_data, tools_map = _load_env_resources(env_type)
+    config = create_tau_bench_config(env_type)
 
-    # Agent replay
-    agent_data = load_data()
-    _replay_actions_on_data(agent_data, tool_calls, tools_map)
-    agent_hash = get_data_hash(agent_data)
+    # Convert ToolCallRecords to dicts if needed
+    actions_for_replay = []
+    for action in tool_calls:
+        if isinstance(action, dict):
+            actions_for_replay.append(action)
+        else:
+            actions_for_replay.append({
+                "name": action.name,
+                "kwargs": action.arguments if isinstance(action.arguments, dict) else {},
+            })
 
-    # Golden replay
-    gt_data = load_data()
-    _replay_actions_on_data(gt_data, expected_actions, tools_map)
-    gt_hash = get_data_hash(gt_data)
+    _, agent_hash = replay_actions(actions_for_replay, config)
+    _, gt_hash = replay_actions(expected_actions, config)
 
     return gt_hash, agent_hash, (gt_hash == agent_hash)
 
@@ -251,12 +220,18 @@ def _extract_expected(info: Dict[str, Any]) -> tuple:
     return instruction, expected_outputs, expected_actions
 
 
-def extract_eval_data(results_path: str) -> List[EvalDataPoint]:
+def extract_eval_data(
+    results_path: str,
+    config: Optional[StateEvaluatorConfig] = None,
+) -> List[EvalDataPoint]:
     """
-    Load tau-bench results and extract standardized evaluation data.
+    Load results and extract standardized evaluation data.
 
     Args:
-        results_path: Path to the tau-bench results JSON file
+        results_path: Path to the results JSON file.
+        config: Optional StateEvaluatorConfig for state consistency replay.
+                If provided, uses this config for all tasks (any Strands project).
+                If None, falls back to auto-detecting tau-bench environment type.
 
     Returns:
         List of EvalDataPoint objects ready for evaluation
@@ -281,16 +256,25 @@ def extract_eval_data(results_path: str) -> List[EvalDataPoint]:
         instruction, expected_outputs, expected_actions = _extract_expected(info)
 
         # Compute state consistency via replay
-        env_type = _detect_env(info)
         try:
             # Convert ToolCallRecords to dicts for replay
             agent_actions_for_replay = [
                 {"name": tc.name, "kwargs": tc.arguments if isinstance(tc.arguments, dict) else {}}
                 for tc in tool_calls
             ]
-            gt_hash, agent_hash, consistent = replay_and_compute_hashes(
-                agent_actions_for_replay, expected_actions, env_type
-            )
+            if config is not None:
+                # Generic path: use caller-provided config
+                result_obj = evaluate_state_consistency(
+                    agent_actions_for_replay, expected_actions, config
+                )
+                gt_hash = result_obj.golden_hash
+                agent_hash = result_obj.agent_hash
+                consistent = result_obj.consistent
+            else:
+                # tau-bench fallback: auto-detect environment
+                gt_hash, agent_hash, consistent = replay_and_compute_hashes(
+                    agent_actions_for_replay, expected_actions, _detect_env(info)
+                )
         except Exception as e:
             print(f"  Warning: state consistency computation failed for task {result.get('task_id', -1)}: {e}")
             gt_hash, agent_hash, consistent = "", "", False

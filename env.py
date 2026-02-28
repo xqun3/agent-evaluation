@@ -19,9 +19,10 @@ from tau_bench.types import (
     RewardActionInfo,
 )
 from dotenv import load_dotenv
-from tools import get_tool_by_name
 from data import load_data
+from tools import TOOL_MAP
 from utils import generate_conversation, get_data_hash
+from eval_common.state_eval import StateEvaluatorConfig, replay_actions
 # from strands import Agent
 
 # ToHashable = Union[
@@ -218,27 +219,20 @@ Rules:
         # TODO: cache gt_data_hash in tasks.py (low priority)
 
         data_hash = get_data_hash(self.agent.state.get("datas"))
-        # with open("run_result_data","w") as wf:
-        #     json.dump(self.agent.state.get("datas"), wf)
-        golden_data = load_data()
-        actions = []
 
-        for action in self.task.actions:
-            if action.name not in self.terminate_tools:
-                actions.append(action)
-                parameters = copy.deepcopy(action.kwargs)
-                tool_use = {
-                    "toolUseId": "123",
-                    "input": parameters
-                }
-                print(parameters.keys())
-                tool_func = get_tool_by_name(action.name)
-                _ = tool_func(tool_use, agent=None, datas=golden_data)
-                print(_)
-        # with open("golden_data","w") as wf:
-        #     json.dump(golden_data, wf)
-                 
-        gt_data_hash = get_data_hash(golden_data)
+        # Replay golden actions using the generic state_eval module (no tool hack needed)
+        golden_actions = [
+            {"name": action.name, "kwargs": copy.deepcopy(action.kwargs)}
+            for action in self.task.actions
+            if action.name not in self.terminate_tools
+        ]
+        config = StateEvaluatorConfig(
+            state_factory=load_data,
+            tools=TOOL_MAP,
+            state_key="datas",
+            terminate_tools=self.terminate_tools,
+        )
+        _, gt_data_hash = replay_actions(golden_actions, config)
         info = RewardActionInfo(
             r_actions=data_hash == gt_data_hash, gt_data_hash=gt_data_hash
         )

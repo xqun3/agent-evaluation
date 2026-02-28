@@ -35,10 +35,7 @@ def find_user_id_by_name_zip(tool: ToolUse,  agent: Agent, **kwargs: Any) -> Too
     last_name = tool["input"]["last_name"]
     zip_code = tool["input"]["zip"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     users = datas.get("users", {})
     
     for user_id, profile in users.items():
@@ -51,8 +48,7 @@ def find_user_id_by_name_zip(tool: ToolUse,  agent: Agent, **kwargs: Any) -> Too
                 "content": [{"text": user_id}]
             }
     
-    if agent is not None:
-        agent.state.set("datas", datas)
+    agent.state.set("datas", datas)
 
     return {
         "toolUseId": tool_use_id,

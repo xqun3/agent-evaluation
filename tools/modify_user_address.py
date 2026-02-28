@@ -56,10 +56,7 @@ def modify_user_address(tool: ToolUse, agent: Agent, **kwargs: Any) -> ToolResul
     country = tool["input"]["country"]
     zip_code = tool["input"]["zip"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     users = datas.get("users", {})
     
     if user_id not in users:
@@ -78,8 +75,7 @@ def modify_user_address(tool: ToolUse, agent: Agent, **kwargs: Any) -> ToolResul
         "country": country,
         "zip": zip_code,
     }
-    if agent is not None:
-        agent.state.set("datas", datas) 
+    agent.state.set("datas", datas)
     return {
         "toolUseId": tool_use_id,
         "status": "success",

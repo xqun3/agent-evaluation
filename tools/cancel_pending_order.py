@@ -34,10 +34,7 @@ def cancel_pending_order(tool: ToolUse, agent: Agent, **kwargs: Any) -> ToolResu
     order_id = tool["input"]["order_id"]
     reason = tool["input"]["reason"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     orders = datas.get("orders", {})
     
     # check order exists and is pending
@@ -85,9 +82,8 @@ def cancel_pending_order(tool: ToolUse, agent: Agent, **kwargs: Any) -> ToolResu
     order["payment_history"].extend(refunds)
 
 
-    if agent is not None:
-        agent.state.set("datas", datas)
-        
+    agent.state.set("datas", datas)
+
     return {
         "toolUseId": tool_use_id,
         "status": "success",

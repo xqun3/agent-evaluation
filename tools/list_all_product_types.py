@@ -20,10 +20,7 @@ TOOL_SPEC = {
 def list_all_product_types(tool: ToolUse,  agent: Agent, **kwargs: Any) -> ToolResult:
     tool_use_id = tool["toolUseId"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     products = datas.get("products", {})
     
     product_dict = {
@@ -31,9 +28,8 @@ def list_all_product_types(tool: ToolUse,  agent: Agent, **kwargs: Any) -> ToolR
     }
     product_dict = dict(sorted(product_dict.items()))
     
-    if agent is not None:
-        agent.state.set("datas", datas)
-        
+    agent.state.set("datas", datas)
+
     return {
         "toolUseId": tool_use_id,
         "status": "success",

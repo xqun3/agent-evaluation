@@ -56,10 +56,7 @@ def modify_pending_order_address(tool: ToolUse,  agent: Agent, **kwargs: Any) ->
     country = tool["input"]["country"]
     zip_code = tool["input"]["zip"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {}  
+    datas = agent.state.get("datas") or {}
     orders = datas.get("orders", {})
     
     # Check if the order exists and is pending
@@ -88,9 +85,8 @@ def modify_pending_order_address(tool: ToolUse,  agent: Agent, **kwargs: Any) ->
         "zip": zip_code,
     }
 
-    if agent is not None:
-        agent.state.set("datas", datas)
-    
+    agent.state.set("datas", datas)
+
     return {
         "toolUseId": tool_use_id,
         "status": "success",

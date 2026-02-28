@@ -687,44 +687,51 @@ tau-bench 的核心评估思想是**最终系统状态一致性**：不关心 ag
 
 ### 实现原理
 
-核心逻辑全部在公共层 `eval_common/extract_results.py`，三个框架只是读取预计算好的结果。
+核心逻辑在通用状态评估模块 `eval_common/state_eval.py`，三个框架只是读取预计算好的结果。`eval_common/extract_results.py` 调用该模块完成预计算。
 
-**第一层：公共层的 replay + hash**（`eval_common/extract_results.py`）
+**第一层：通用状态评估模块**（`eval_common/state_eval.py`）
+
+重放时构造一个 `MockAgent`（提供 `agent.state.get/set` 接口），让工具走标准路径，无需任何 hack：
 
 ```python
-def replay_and_compute_hashes(tool_calls, expected_actions, env_type="retail"):
-    load_data, tools_map = _load_env_resources(env_type)
+from eval_common.state_eval import StateEvaluatorConfig, replay_actions, evaluate_state_consistency
 
-    # 1. 新数据库副本 → 重放 agent 工具调用 → agent_hash
-    agent_data = load_data()
-    _replay_actions_on_data(agent_data, tool_calls, tools_map)
-    agent_hash = get_data_hash(agent_data)
+# 配置：提供数据工厂、工具映射、state key
+config = StateEvaluatorConfig(
+    state_factory=load_data,       # 返回全新数据库副本
+    tools=TOOL_MAP,                # {"tool_name": tool_func}
+    state_key="datas",             # agent.state 中数据的 key
+    terminate_tools=["transfer_to_human_agents"],
+)
 
-    # 2. 新数据库副本 → 重放 golden 期望动作 → gt_hash
-    gt_data = load_data()
-    _replay_actions_on_data(gt_data, expected_actions, tools_map)
-    gt_hash = get_data_hash(gt_data)
-
-    # 3. 两个 hash 一致 = 状态一致
-    return gt_hash, agent_hash, (gt_hash == agent_hash)
+# 对比 agent 和 golden 重放后的状态 hash
+result = evaluate_state_consistency(agent_actions, golden_actions, config)
+# result.consistent, result.agent_hash, result.golden_hash
 ```
 
-重放通过逐个调用 tau-bench 的原始工具函数实现（`Tool.invoke(data=data, **kwargs)`），工具会直接修改 `data` dict，最后对整个 dict 做 SHA256 hash：
+`replay_actions()` 的实现：在新数据库副本上创建 MockAgent，逐个调用工具，工具通过 `agent.state.get("datas")` / `agent.state.set("datas", datas)` 正常读写状态，最后对整个 state dict 做 SHA256 hash：
 
 ```python
-def _replay_actions_on_data(data, actions, tools_map):
+def replay_actions(actions, config):
+    state = config.state_factory()
+    mock = MockAgent(state, config.state_key)  # 提供 agent.state.get/set
     for action in actions:
-        name = action.get("name", "")
-        kwargs = action.get("kwargs", {})
-        if name in tools_map:
+        tool_func = config.tools.get(action["name"])
+        if tool_func:
+            tool_use = {"toolUseId": "replay", "input": action["kwargs"]}
             try:
-                tools_map[name].invoke(data=data, **kwargs)
+                tool_func(tool_use, mock)       # 工具走标准路径
             except Exception:
                 pass  # 工具报错不中断重放
-    return data
+    return mock.state.get(config.state_key), get_data_hash(...)
+```
 
-def get_data_hash(data):
-    return sha256(str(_to_hashable(data)).encode("utf-8")).hexdigest()
+对于 tau-bench 原生工具（非 Strands 签名），`extract_results.py` 提供了 `create_tau_bench_config()` 适配器工厂：
+
+```python
+def create_tau_bench_config(env_type: str) -> StateEvaluatorConfig:
+    """将 tau-bench Tool.invoke(data=..., **kwargs) 适配为 Strands 签名。"""
+    ...
 ```
 
 在 `extract_eval_data()` 提取阶段，每个数据点就已经算好了三个字段：
@@ -930,7 +937,7 @@ expected_output = "; ".join(dp.expected_outputs) if dp.expected_outputs else "Ta
 
 ### 8.5 Strands Agent state 兼容问题
 
-新版 Strands Agents 移除了 Agent 构造函数的 `state` 参数，但工具代码中仍使用 `agent.state.get()`。需要手动挂载一个 state 对象：
+新版 Strands Agents 移除了 Agent 构造函数的 `state` 参数，但工具代码中仍使用 `agent.state.get()`。运行时需要手动挂载一个 state 对象：
 
 ```python
 class _State:
@@ -943,6 +950,14 @@ class _State:
 
 agent = Agent(model=model, system_prompt=prompt, tools=tools)
 agent.state = _State({"datas": load_data()})
+```
+
+评估重放时则使用 `eval_common.state_eval.MockAgent`，它提供相同的 `agent.state.get/set` 接口，工具无感知：
+
+```python
+from eval_common.state_eval import MockAgent
+mock = MockAgent(state_data=load_data(), state_key="datas")
+tool_func(tool_use, mock)  # 工具正常调用 mock.state.get("datas")
 ```
 
 ---
@@ -963,6 +978,7 @@ agent-evaluation/
 │   ├── *_mlflow_eval.json          # MLflow 评估结果
 │   └── *_deepeval_eval.json        # DeepEval 评估结果
 ├── eval_common/
+│   ├── state_eval.py               # 通用状态一致性评估（MockAgent + replay）
 │   └── extract_results.py          # 结果标准化提取
 ├── eval_langsmith/
 │   └── run_eval.py                 # agentevals + openevals

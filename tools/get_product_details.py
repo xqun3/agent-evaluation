@@ -26,10 +26,7 @@ def get_product_details(tool: ToolUse,  agent: Agent, **kwargs: Any) -> ToolResu
     tool_use_id = tool["toolUseId"]
     product_id = tool["input"]["product_id"]
     
-    if "datas" in kwargs:
-        datas = kwargs["datas"]
-    else:   
-        datas = agent.state.get("datas") or {} 
+    datas = agent.state.get("datas") or {}
     products = datas.get("products", {})
     
     print(tool_use_id, tool["input"])
@@ -40,9 +37,8 @@ def get_product_details(tool: ToolUse,  agent: Agent, **kwargs: Any) -> ToolResu
             "content": [{"text": json.dumps(products[product_id])}]
         }
 
-    if agent is not None:
-        agent.state.set("datas", datas)
-    
+    agent.state.set("datas", datas)
+
     return {
         "toolUseId": tool_use_id,
         "status": "error",
